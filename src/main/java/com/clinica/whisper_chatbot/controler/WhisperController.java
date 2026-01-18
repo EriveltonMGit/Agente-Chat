@@ -1,7 +1,7 @@
 package com.clinica.whisper_chatbot.controler;
 
-import com.clinica.whisper_chatbot.model.Teste;
-import com.clinica.whisper_chatbot.repository.TesteRepository;
+import com.clinica.whisper_chatbot.model.Mensagem;
+import com.clinica.whisper_chatbot.repository.MensagemRepository;
 import com.clinica.whisper_chatbot.service.AudioCleanupService;
 import com.clinica.whisper_chatbot.service.ChatService;
 import com.clinica.whisper_chatbot.service.PiperService;
@@ -24,7 +24,7 @@ public class WhisperController {
     private final WhisperService whisperService;
     private final PiperService piperService;
     private final ChatService chatService;
-    private final TesteRepository repository;
+    private final MensagemRepository repository;
     private final AudioCleanupService audioCleanupService; // injetado
 
     private static final String BASE_PATH = "C:\\Users\\erive\\Desktop\\Release\\";
@@ -33,7 +33,7 @@ public class WhisperController {
             WhisperService whisperService,
             PiperService piperService,
             ChatService chatService,
-            TesteRepository repository,
+            MensagemRepository repository,
             AudioCleanupService audioCleanupService // injetado
     ) {
         this.whisperService = whisperService;
@@ -83,7 +83,7 @@ public class WhisperController {
             log.info("[BOT]: {}", resposta);
 
             // 4. Salva no banco apenas a transcrição
-            repository.save(new Teste(null, "User: " + texto + " | Bot: " + resposta));
+            repository.save(new Mensagem(null, "User: " + texto + " | Bot: " + resposta));
 
             // 5. Piper → TTS
             piperService.sintetizar(resposta, pathOut);

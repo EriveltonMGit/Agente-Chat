@@ -1,5 +1,6 @@
 package com.clinica.whisper_chatbot.service;
 
+import com.clinica.whisper_chatbot.config.AtendenteConfig;
 import com.clinica.whisper_chatbot.config.OpenAiConfig;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -7,103 +8,110 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Service
 public class ChatService {
 
+    private final AgendaService agendaService;
     private final OpenAiConfig config;
+    private final AtendenteConfig atendenteConfig;
     private static final String ENDPOINT = "https://api.openai.com/v1/chat/completions";
-
-    // Reutilizar o cliente HTTP evita a criação de novos sockets em cada chamada, economizando tempo de conexão
     private final OkHttpClient client = new OkHttpClient.Builder()
-            .connectTimeout(1, TimeUnit.SECONDS) // Tempo de conexão reduzido para falha rápida
-            .writeTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(7, TimeUnit.SECONDS)   // Reduzido para acelerar a percepção de resposta
-            .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .build();
-
     private final Map<String, List<JSONObject>> contexto = new HashMap<>();
 
-    public ChatService(OpenAiConfig config) {
+    public ChatService(OpenAiConfig config, AtendenteConfig atendenteConfig, AgendaService agendaService) {
         this.config = config;
+        this.atendenteConfig = atendenteConfig;
+        this.agendaService = agendaService;
     }
 
+    /**
+     * Conversa com a LLM e retorna resposta natural
+     */
     public String conversar(String sessionId, String texto) {
-        long inicio = System.currentTimeMillis(); // marca início
-        try {
-            contexto.putIfAbsent(sessionId, new ArrayList<>());
-            List<JSONObject> historico = contexto.get(sessionId);
+        contexto.putIfAbsent(sessionId, new ArrayList<>());
+        List<JSONObject> historico = contexto.get(sessionId);
 
+        try {
+            // --- Inicialização do contexto ---
             if (historico.isEmpty()) {
-                historico.add(new JSONObject()
-                        .put("role", "system")
-                        .put("content", """
-                        Você é uma assistente clínica brasileira direta e gentil.
-                        
-                        Diretrizes de VELOCIDADE:
-                        - Respostas extremamente curtas (máximo 2 frases).
-                        - Não use introduções formais longas.
-                        - Vá direto ao ponto para que a síntese de voz seja rápida.
-                        - Se o paciente disser pouco, apenas confirme e pergunte o próximo passo.
-                    """));
+                String infoAgenda = agendaService.obterResumoAgenda(113);
+                String systemPrompt = atendenteConfig.getInstrucoesSistema()
+                        .replace("{nome}", atendenteConfig.getNome())
+                        .replace("{agenda}", infoAgenda)
+                        .replace("{personalidade}", atendenteConfig.getPersonalidade())
+                        .replace("{data_hoje}", LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")))
+                        .replace("{diretrizes}", String.join(" ", atendenteConfig.getDiretrizes()));
+                historico.add(new JSONObject().put("role", "system").put("content", systemPrompt));
             }
 
             historico.add(new JSONObject().put("role", "user").put("content", texto));
 
-            // Mantém apenas o essencial para reduzir o processamento da API
-            if (historico.size() > 6) {
-                historico.subList(1, historico.size() - 4).clear();
-            }
+            // Limita histórico para performance
+            if (historico.size() > 10) historico.subList(1, historico.size() - 8).clear();
 
             JSONArray msgs = new JSONArray();
             historico.forEach(msgs::put);
 
             JSONObject payload = new JSONObject()
                     .put("model", "gpt-4o-mini")
-                    .put("temperature", 0.3)
-                    .put("max_tokens", 100)
-                    .put("presence_penalty", 0.6)
+                    .put("temperature", 0.5)  // ligeiramente mais criativo
+                    .put("max_tokens", 150)
                     .put("messages", msgs);
 
-            RequestBody body = RequestBody.create(
-                    payload.toString(),
-                    MediaType.get("application/json; charset=utf-8")
-            );
-
+            RequestBody body = RequestBody.create(payload.toString(), MediaType.get("application/json; charset=utf-8"));
             Request request = new Request.Builder()
                     .url(ENDPOINT)
                     .post(body)
                     .addHeader("Authorization", "Bearer " + config.getApiKey())
                     .build();
 
-            String resposta;
             try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    log.warn("[CHAT] Resposta não foi bem-sucedida: HTTP {}", response.code());
-                    return "Erro na rede, pode repetir?";
+                if (!response.isSuccessful() || response.body() == null) return "Erro de conexão.";
+                JSONObject json = new JSONObject(response.body().string());
+                String resposta = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content").trim();
+
+                // --- Detecta e processa agendamento ---
+                if (resposta.contains("[AGENDAR:")) {
+                    try {
+                        String dataStr = resposta.substring(resposta.indexOf("[AGENDAR:") + 9, resposta.indexOf("]")).trim();
+                        LocalDateTime horario = LocalDateTime.parse(dataStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                        agendaService.realizarAgendamento(113, 200, horario);
+                        log.info("[DATABASE] Agendamento confirmado para {}", dataStr);
+
+                        // Remove tag técnica para a fala
+                        resposta = resposta.replaceAll("\\[AGENDAR:.*?\\]", "").trim();
+                    } catch (Exception e) {
+                        log.error("[ERRO-PARSER] Falha ao ler data da IA: {}", e.getMessage());
+                    }
                 }
 
-                JSONObject json = new JSONObject(response.body().string());
-                resposta = json.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content").trim();
+                // --- Ajuste de naturalidade ---
+                resposta = resposta.replaceAll("\\. ", ".\n"); // quebra frases curtas
+                resposta = "😊 " + resposta; // adiciona emoji para humanizar
 
                 historico.add(new JSONObject().put("role", "assistant").put("content", resposta));
+                return resposta;
             }
 
-            long fim = System.currentTimeMillis();
-            log.info("[TIMER] LLM demorou: {}ms | Input: \"{}\" | Resposta: \"{}\"", (fim - inicio), texto, resposta);
-
-            return resposta;
-
         } catch (Exception e) {
-            long fim = System.currentTimeMillis();
-            log.error("[CHAT-ERRO] Exceção após {}ms: {}", (fim - inicio), e.getMessage());
-            return "Ops! Tivemos um soluço técnico. Repete pra mim?";
+            log.error("[CHAT-ERRO] {}", e.getMessage());
+            return "Ops! Tivemos um probleminha técnico, mas já estou voltando 😉";
         }
     }
-
 
     public void reset(String sessionId) { contexto.remove(sessionId); }
     public String conversar(String texto) { return conversar("default", texto); }

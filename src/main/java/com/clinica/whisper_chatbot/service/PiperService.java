@@ -20,13 +20,8 @@ public class PiperService {
     private static final String BASE = "C:\\Users\\erive\\Desktop\\Release\\";
     public static final String VOICE = BASE + "voices\\pt_BR-cadu-medium.onnx";
 
-
     /**
-     * Sintetiza um texto em WAV usando o Piper.
-     *
-     * @param texto      Texto a ser convertido em voz.
-     * @param outputWav  Caminho do arquivo WAV de saída.
-     * @throws Exception Se ocorrer algum erro na execução do Piper.
+     * Sintetiza voz a partir do texto natural
      */
     public void sintetizar(String texto, String outputWav) throws Exception {
         Path pModel = Paths.get(VOICE);
@@ -37,23 +32,24 @@ public class PiperService {
 
         log.info("[PIPER] Sintetizando: {}", texto);
 
+        // Configuração para voz mais humana
         ProcessBuilder pb = new ProcessBuilder(
                 PIPER_EXE,
                 "--model", VOICE,
                 "--output_file", outputWav,
-                "--length_scale", "0.9"
+                "--length_scale", "1.05",       // ligeiramente mais lento
+                "--sentence_silence", "0.3",    // pausa entre frases
+                "--noise_scale", "0.5"          // suaviza a voz
         );
 
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
-        // Envia o texto via STDIN
         try (OutputStreamWriter writer = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8)) {
             writer.write(texto);
             writer.flush();
         }
 
-        // Lê logs de stdout/erros
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -61,7 +57,6 @@ public class PiperService {
             }
         }
 
-        // Aguarda término do processo com timeout
         boolean finished = process.waitFor(30, TimeUnit.SECONDS);
         int code = finished ? process.exitValue() : -1;
         log.info("[PIPER] Finalizado com código {}", code);
@@ -71,5 +66,3 @@ public class PiperService {
         }
     }
 }
-
-//correto
