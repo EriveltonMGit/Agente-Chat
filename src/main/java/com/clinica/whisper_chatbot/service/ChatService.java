@@ -73,7 +73,7 @@ public class ChatService {
             Request request = new Request.Builder()
                     .url(ENDPOINT)
                     .post(body)
-                    .addHeader("Authorization", "Bearer " + config.getApiKey())
+                    .addHeader("Authorization", "Bearer " + config.getKey())
                     .build();
 
             try (Response response = client.newCall(request).execute()) {
@@ -84,27 +84,33 @@ public class ChatService {
                         .getJSONObject("message")
                         .getString("content").trim();
 
-                // --- Detecta e processa agendamento ---
+                // --- 1. Processamento de Agendamento ---
                 if (resposta.contains("[AGENDAR:")) {
                     try {
                         String dataStr = resposta.substring(resposta.indexOf("[AGENDAR:") + 9, resposta.indexOf("]")).trim();
                         LocalDateTime horario = LocalDateTime.parse(dataStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
                         agendaService.realizarAgendamento(113, 200, horario);
-                        log.info("[DATABASE] Agendamento confirmado para {}", dataStr);
-
-                        // Remove tag técnica para a fala
-                        resposta = resposta.replaceAll("\\[AGENDAR:.*?\\]", "").trim();
+                        log.info("[DATABASE] Agendamento confirmado via IA para {}", dataStr);
                     } catch (Exception e) {
                         log.error("[ERRO-PARSER] Falha ao ler data da IA: {}", e.getMessage());
                     }
                 }
 
-                // --- Ajuste de naturalidade ---
-                resposta = resposta.replaceAll("\\. ", ".\n"); // quebra frases curtas
-                resposta = "😊 " + resposta; // adiciona emoji para humanizar
+                // --- 2. Limpeza Radical para a Voz (Piper) ---
+                // Remove tags [AGENDAR], emojis, asteriscos e quebras de linha que fazem o Piper "engasgar"
+                String respostaParaVoz = resposta.replaceAll("\\[AGENDAR:.*?\\]", "")
+                        .replaceAll("[\\x{1F600}-\\x{1F64F}\\x{1F300}-\\x{1F5FF}\\x{1F680}-\\x{1F6FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]", "")
+                        .replaceAll("\\*", "") // Remove negritos do Markdown
+                        .replace("\n", " ")   // Transforma quebra de linha em espaço para fluidez
+                        .replaceAll("\\s+", " ") // Remove espaços duplos
+                        .trim();
 
+                // --- 3. Manutenção do Histórico ---
+                // Adicionamos um emoji apenas no histórico visual, se desejar
                 historico.add(new JSONObject().put("role", "assistant").put("content", resposta));
-                return resposta;
+
+                log.info("[CHAT] Texto final para o Piper: {}", respostaParaVoz);
+                return respostaParaVoz;
             }
 
         } catch (Exception e) {

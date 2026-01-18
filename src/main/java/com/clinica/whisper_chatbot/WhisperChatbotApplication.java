@@ -8,26 +8,30 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class WhisperChatbotApplication {
 
     public static void main(String[] args) {
-        // Tenta carregar o .env do diretório de trabalho atual
-        try {
-            Dotenv dotenv = Dotenv.configure()
-                    .directory("./") // Força a busca na raiz do projeto
-                    .ignoreIfMissing()
-                    .load();
+        // Log para saber onde o Java está "pisando"
+        String diretorioAtual = System.getProperty("user.dir");
+        System.out.println("📂 O Eduardo está procurando o .env em: " + diretorioAtual);
 
-            dotenv.entries().forEach(entry -> {
-                System.setProperty(entry.getKey(), entry.getValue());
-                // Log de depuração (opcional, remova depois)
-                if(entry.getKey().contains("OPENAI")) {
-                    System.out.println("[DEBUG] Carregando chave do .env...");
-                }
-            });
-        } catch (Exception e) {
-            System.err.println("[ERRO] Falha ao carregar .env: " + e.getMessage());
+        // 1. Carrega o .env
+        Dotenv dotenv = Dotenv.configure()
+                .directory("./")
+                .ignoreIfMissing()
+                .load();
+
+        // 2. Injeta no System
+        dotenv.entries().forEach(entry -> {
+            System.setProperty(entry.getKey(), entry.getValue());
+        });
+
+        // 3. Verificação IMEDIATA (Antes do Spring subir)
+        String key = System.getProperty("OPENAI_API_KEY");
+        if (key == null || key.isEmpty()) {
+            System.err.println("❌ ERRO: OPENAI_API_KEY não encontrada no .env!");
+            System.err.println("👉 Certifique-se que o arquivo .env está em: " + diretorioAtual);
+        } else {
+            System.out.println("✅ Chave OpenAI detectada (Início: " + key.substring(0, 7) + "...)");
         }
 
         SpringApplication.run(WhisperChatbotApplication.class, args);
-
-        System.out.println("\n>>> EDUARDO ONLINE E PRONTO NO PORTA 8080 <<<");
     }
 }

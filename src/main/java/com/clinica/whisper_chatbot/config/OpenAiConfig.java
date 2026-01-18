@@ -6,20 +6,24 @@ import org.springframework.context.annotation.Configuration;
 import jakarta.annotation.PostConstruct;
 
 @Configuration
-@ConfigurationProperties(prefix = "openai")
+@ConfigurationProperties(prefix = "openai.api") // Ajustado para bater com seu YML (openai.api.key)
 @Data
 public class OpenAiConfig {
-    // Se o prefixo no application.yml for 'openai' e a chave 'api-key',
-    // o Spring procura por 'apiKey' automaticamente.
-    private String apiKey;
+
+    private String key; // O Spring mapeia 'openai.api.key' para este campo
 
     @PostConstruct
     public void check() {
-        if (apiKey == null || apiKey.equals("${OPENAI_API_KEY}")) {
-            System.err.println("CRÍTICO: A chave da OpenAI não foi carregada corretamente!");
+        // Se o valor for nulo ou contiver o símbolo $, significa que o Spring não resolveu a variável
+        if (key == null || key.isBlank() || key.contains("${")) {
+            // Tenta buscar direto do System Property (que você setou no main)
+            key = System.getProperty("OPENAI_API_KEY");
+        }
+
+        if (key == null || key.isEmpty()) {
+            System.err.println("❌ [CONFIG] Chave da OpenAI ainda não disponível no contexto.");
         } else {
-            // Mostra apenas os 5 primeiros caracteres por segurança
-            System.out.println("OPENAI_API_KEY carregada com sucesso: " + apiKey.substring(0, 5) + "...");
+            System.out.println("🚀 [CONFIG] OpenAiConfig validada! Pronto para processar voz.");
         }
     }
 }

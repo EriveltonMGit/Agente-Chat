@@ -41,6 +41,9 @@ public class WhisperService {
     /**
      * Transcreve áudio para texto
      */
+    /**
+     * Transcreve áudio para texto com filtro de metadados agressivo
+     */
     public String processarAudio(String audioPath) {
         StringBuilder buffer = new StringBuilder();
         try {
@@ -59,7 +62,18 @@ public class WhisperService {
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    if (line.isBlank() || line.contains("whisper") || line.contains("model") || line.contains("system_info")) continue;
+                    String lower = line.toLowerCase();
+                    // FILTRO: Ignora qualquer linha que não seja a transcrição real
+                    if (line.isBlank() ||
+                            lower.contains("whisper") ||
+                            lower.contains("main") ||
+                            lower.contains("sample") ||
+                            lower.contains("thread") ||
+                            lower.contains("beam") ||
+                            lower.contains("processing") ||
+                            lower.contains("model")) {
+                        continue;
+                    }
                     buffer.append(line).append(" ");
                 }
             }
@@ -69,7 +83,7 @@ public class WhisperService {
             return "";
         }
 
-        // Limpeza final para envio à LLM
+        // Limpeza final para garantir que caracteres estranhos de ruído não entrem na LLM
         return buffer.toString().replaceAll("\\s+", " ").replaceAll("[^\\p{L}\\p{N}\\s\\?\\!\\,\\.]", "").trim();
     }
 }
