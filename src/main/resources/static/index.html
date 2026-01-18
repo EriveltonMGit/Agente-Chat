@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Chatbot Clínica i5-14500</title>
+    <style>
+        body { font-family: sans-serif; max-width: 500px; margin: 50px auto; text-align: center; background-color: #f4f7f6; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .status { margin-top: 20px; color: #555; height: 24px; }
+        button { padding: 12px 25px; font-size: 16px; cursor: pointer; border: none; border-radius: 8px; transition: 0.3s; }
+        #btnGravar { background-color: #e74c3c; color: white; }
+        #btnGravar:disabled { background-color: #fab1a0; }
+        #btnParar { background-color: #2d3436; color: white; }
+        #btnParar:disabled { background-color: #b2bec3; }
+        audio { margin-top: 20px; width: 100%; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h2>Atendimento Cuida Mais</h2>
+    <p>Clique para falar com a clínica</p>
+
+    <button id="btnGravar">🎤 Gravar Pergunta</button>
+    <button id="btnParar" disabled>🛑 Parar e Ouvir</button>
+
+    <div class="status" id="statusMessage">Microfone pronto</div>
+
+    <div id="audioContainer" style="display:none;">
+        <hr>
+        <p><strong>Resposta do Médico:</strong></p>
+        <audio id="audioPlayer" controls></audio>
+    </div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+    const status = document.getElementById('statusMessage');
+    const btnGravar = document.getElementById('btnGravar');
+    const btnParar = document.getElementById('btnParar');
+    const audioPlayer = document.getElementById('audioPlayer');
+
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+            mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                enviarParaClinica(audioBlob);
+                audioChunks = [];
+            };
+        });
+
+    btnGravar.onclick = () => {
+        mediaRecorder.start();
+        btnGravar.disabled = true;
+        btnParar.disabled = false;
+        status.innerText = "Gravando...";
+    };
+
+    btnParar.onclick = () => {
+        mediaRecorder.stop();
+        btnGravar.disabled = false;
+        btnParar.disabled = true;
+        status.innerText = "Processando no i5-14500...";
+    };
+
+    async function enviarParaClinica(blob) {
+        const formData = new FormData();
+        formData.append('file', blob, 'pergunta.webm');
+
+        try {
+            const response = await fetch('/api/whisper/conversar', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const audioRes = await response.blob();
+                audioPlayer.src = URL.createObjectURL(audioRes);
+                document.getElementById('audioContainer').style.display = 'block';
+                status.innerText = "Resposta recebida!";
+                audioPlayer.play();
+            } else {
+                status.innerText = "Erro: áudio não compreendido.";
+            }
+        } catch (err) {
+            status.innerText = "Erro de conexão.";
+        }
+    }
+</script>
+</body>
+</html>
